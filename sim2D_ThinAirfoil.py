@@ -209,11 +209,11 @@ if __name__ == "__main__":
     # === Definición del avión ===
     wing = SurfaceAero(S=0.075, c=0.1, x_c4=+0.075, tat=tat_w, CD0=0.012, k=0.06)
     tail = SurfaceAero(S=0.144, c=0.06, x_c4=-0.45, tat=tat_t, CD0=0.010, k=0.06)
-    ac = Aircraft2D(m=0.026, Iz=0.0001047, rho=1.225, wing=wing, tail=tail)
+    ac = Aircraft2D(m=0.026, Iz=0.080400, rho=1.225, wing=wing, tail=tail)
 
     # === Simulación ===
-    T, Y, t_hit = simulate(ac, x0=0, y0=2, t_final=40.0, dt=0.01,
-                    u0=2.0, v0=0, theta0_deg=0.0, w0_deg_s=0.0)
+    T, Y, t_hit = simulate(ac, x0=0, y0=2, t_final=40.0, dt=0.1,
+                    u0=6.0, v0=0, theta0_deg=4.0, w0_deg_s=0.0)
 
     xf, yf, thetaf, uf, vf, wf = Y[:, -1]
     print("\n=== Coeficientes TAT ===")
