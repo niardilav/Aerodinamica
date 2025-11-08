@@ -58,10 +58,10 @@ def tat_from_camber(dzdx_fun: Callable[[np.ndarray], np.ndarray], n_quad: int = 
     x = 0.5 * (1 - np.cos(theta))
     dzdx = dzdx_fun(x)
 
-    alpha_L0 = - (1 / np.pi) * np.trapezoid(dzdx * (1 - np.cos(theta)), theta)
+    alpha_L0 =  (1 / np.pi) * np.trapezoid(dzdx * (1 - np.cos(theta)), theta)
     A1 = (2 / np.pi) * np.trapezoid(dzdx * np.cos(theta), theta)
     A2 = (2 / np.pi) * np.trapezoid(dzdx * np.cos(2 * theta), theta)
-    cm_c4 = - (np.pi / 4) * (A1 - 0.5 * A2)
+    cm_c4 = -(np.pi / 4) * (A1 - A2)
 
     return TATCoeffs(alpha_L0, cm_c4)
 
@@ -105,8 +105,7 @@ def lift_drag(q: float, surf: SurfaceAero, alpha: float):
 
 def aero_forces(ac: Aircraft2D, u: float, v: float, theta: float):
     V = np.hypot(u, v)
-    if V < 1e-6:
-        return 0, 0, 0
+    
 
     q = 0.5 * ac.rho * V**2
     gamma = np.arctan2(v, u)
@@ -117,19 +116,25 @@ def aero_forces(ac: Aircraft2D, u: float, v: float, theta: float):
     # --- Ala ---
     alpha_w = alpha_body + ac.wing.alpha_inc
     _, Lw, Dw = lift_drag(q, ac.wing, alpha_w)
+    if np.abs(theta)>np.deg2rad(30):
+        Lw=0
     Fw = -Dw * t_hat + Lw * n_hat
-    Mw = q * ac.wing.S * ac.wing.c * ac.wing.tat.cm_c4 + ac.wing.x_c4 * Fw[1]
+    Mw = -q * ac.wing.S * ac.wing.c * ac.wing.tat.cm_c4 + ac.wing.x_c4 * Fw[1]
 
     # --- Estabilizador ---
     alpha_t = alpha_body + ac.tail.alpha_inc - ac.downwash
     _, Lt, Dt = lift_drag(q, ac.tail, alpha_t)
+    if np.abs(theta)>np.deg2rad(30): #para entrada en perdida
+        Lt=0
     Ft = -Dt * t_hat + Lt * n_hat
-    Mt = q * ac.tail.S * ac.tail.c * ac.tail.tat.cm_c4 + ac.tail.x_c4 * Ft[1]
+    Mt = -q * ac.tail.S * ac.tail.c * ac.tail.tat.cm_c4 + ac.tail.x_c4 * Ft[1]
 
     Fx = Fw[0] + Ft[0]
     Fy = Fw[1] + Ft[1]
     Mz = Mw + Mt
 
+    #if V < 1e-6:  
+    #    return 0, 0, 0
     return Fx, Fy, Mz
 
 
@@ -137,9 +142,14 @@ def rhs(t, Y, ac: Aircraft2D, g=9.81):
     x, y, theta, u, v, w = Y
     Fx, Fy, Mz = aero_forces(ac, u, v, theta)
 
-    udot = Fx / ac.m
-    vdot = (Fy - ac.m * g) / ac.m
+    udot = Fx/ ac.m
+    vdot = (Fy-ac.m * g) / ac.m
     wdot = Mz / ac.Iz
+    if np.abs(wdot) > 10:
+        wdot = 10 * np.sign(wdot)
+    if theta < -np.pi/2 or theta > np.pi/2:
+        wdot = 0
+
     return [u, v, w, udot, vdot, wdot]
 
 
@@ -196,8 +206,8 @@ if __name__ == "__main__":
 
     # Archivos con línea media (X,Y en mm)
 
-    wing_file = "ala_linea_media.dat"
-    tail_file = "estab_linea_media.dat"
+    wing_file = "ala_linea_media_papel.dat"
+    tail_file = "estab_linea_media_papel.dat"
 
     # === Carga de TAT desde línea media ===
     _, _, dzdx_w = load_camber_line(wing_file)
@@ -206,20 +216,48 @@ if __name__ == "__main__":
     tat_w = tat_from_camber(dzdx_w)
     tat_t = tat_from_camber(dzdx_t)
 
-    # === Definición del avión ===
-    wing = SurfaceAero(S=0.075, c=0.1, x_c4=+0.075, tat=tat_w, CD0=0.012, k=0.06)
-    tail = SurfaceAero(S=0.144, c=0.06, x_c4=-0.45, tat=tat_t, CD0=0.010, k=0.06)
-    ac = Aircraft2D(m=0.026, Iz=0.080400, rho=1.225, wing=wing, tail=tail)
+    c=0.01  # m
+    nu=1.5e-5  # m2/s
+    U0=5.0  # m/s
+    Re_c=c*U0/nu
+    cd=1.328/np.sqrt(Re_c)
+    x_c4_wing=-6e-3-2.5e-3
+    x_c4_tail=0.18-2.5e-3
+    AR_wing=29.5
+    AR_tail=7.0
 
-    # === Simulación ===
-    T, Y, t_hit = simulate(ac, x0=0, y0=2, t_final=40.0, dt=0.1,
-                    u0=6.0, v0=0, theta0_deg=4.0, w0_deg_s=0.0)
+    e_wing=1.78*(1-0.045*AR_wing**0.68)-0.64
+    e_tail=1.78*(1-0.045*AR_tail**0.68)-0.64
 
-    xf, yf, thetaf, uf, vf, wf = Y[:, -1]
-    print("\n=== Coeficientes TAT ===")
+    k_wing=np.pi*AR_wing*e_wing**(-1)*0
+    k_tail=np.pi*AR_tail*e_tail**(-1)*0
+
+    print("=== Parámetros aerodinámicos ===")
+    print(f"Cuerda c = {c*1000:.1f} mm")
+    print(f"Velocidad U0 = {U0:.2f} m/s")
+    print(f"Viscosidad cinemática ν = {nu:.2e} m²/s")
+    print(f"x_c/4 ala = {x_c4_wing*1000:.1f} mm, x_c/4 estabilizador = {x_c4_tail*1000:.1f} mm")
+    print(f"Re_c = {Re_c:.3e}")
+    print(f"cd (lámina delgada) = {cd:.4f}")
+    print(f"AR_wing = {AR_wing}, AR_tail = {AR_tail}")
+    print(f"e_wing = {e_wing:.3f}, k = {k_wing:.2f}")
+    print(f"e_tail = {e_tail:.3f}, k = {k_tail:.2f}")
     print(f"Ala:   αL0 = {np.rad2deg(tat_w.alpha_L0):.3f}°, cm_c/4 = {tat_w.cm_c4:.4f}")
     print(f"Estab: αL0 = {np.rad2deg(tat_t.alpha_L0):.3f}°, cm_c/4 = {tat_t.cm_c4:.4f}")
 
+
+    # === Definición del avión ===
+    wing = SurfaceAero(S=1e-2*29.5*1e-2, c=c, x_c4=x_c4_wing, tat=tat_w, CD0=2*cd, k=k_wing)
+    tail = SurfaceAero(S=1e-2*7*1e-2, c=c, x_c4=x_c4_tail, tat=tat_t, CD0=2*cd, k=k_tail)
+    ac = Aircraft2D(m=0.0024, Iz=1/12*0.0026*29.5e-2**2, rho=1.225, wing=wing, tail=tail)
+
+    # === Simulación ===
+    T, Y, t_hit = simulate(ac, x0=0, y0=2, t_final=3.0, dt=0.01,
+                    u0=U0, v0=0, theta0_deg=0.0, w0_deg_s=0.0)
+
+    xf, yf, thetaf, uf, vf, wf = Y[:, -1]
+    
+    
     print("\n=== Estado final ===")
     print(f"x={xf:.2f} m, y={yf:.2f} m, θ={np.rad2deg(thetaf):.2f}°")
     print(f"u={uf:.2f} m/s, v={vf:.2f} m/s, ω={np.rad2deg(wf):.3f}°/s")
@@ -248,6 +286,15 @@ plt.title('Trayectoria del avión')
 plt.grid(True)
 plt.gca().set_aspect('equal', adjustable='box')
 plt.tight_layout()
+
+plt.figure(figsize=(8, 4))
+plt.plot(T, Y[3, :], 'g', linewidth=2,label='u')
+plt.plot(T, Y[4, :], 'm', linewidth=2,label='v')
+plt.xlabel('Tiempo [s]')
+plt.ylabel('V [m/s]')
+plt.legend()
+plt.title('Componentes de velocidad en el tiempo')
+plt.grid(True)
 
 plt.figure(figsize=(8, 4))
 plt.plot(T, theta_deg, 'r', linewidth=2)
