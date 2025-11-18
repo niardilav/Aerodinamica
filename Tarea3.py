@@ -88,12 +88,21 @@ if __name__ == "__main__":
     print(f"Momento aerodinámico en 1/4 de cuerda, Cm_c/4 = {tat.cm_c4:.5f}")
 
     # === Graficar C_L vs α ===
-    alpha_deg = np.linspace(-14, 14, 200)
+    alpha_deg = np.linspace(-14, 14, 5)
     alpha_rad = np.deg2rad(alpha_deg)
     CL = tat.cl_alpha * (alpha_rad - tat.alpha_L0)
 
+
+    alpha = np.array([-14.0, -7.0, 0.0, 7.0, 14.0])
+    CL_cfd    = np.array([-1.0407, -0.4571, 0.2399, 0.7878, 1.3108])
+    CD_cfd    = np.array([0.0229,  0.0125, 0.0107, 0.0141, 0.0265])
+    RMAE_lift= np.mean(np.abs((CL - CL_cfd)/CL))
+    CD_exp=np.array([np.nan,0.013,0.010,0.014,0.026])
+    RMAE_drag= np.mean(np.abs((CD_exp[1:] - CD_cfd[1:])/CD_exp[~np.isnan(CD_exp)]))
+    print(f"RMAE de sustentación entre TAT y CFD: {RMAE_lift:.4f}")        
     plt.figure(figsize=(7,5))
-    plt.plot(alpha_deg, CL, label="C_L(α) – TAT", linewidth=2)
+    plt.plot(alpha, CL_cfd, 'r-o', label="C_L CFD", markersize=8)
+    plt.plot(alpha_deg, CL ,label="C_L(α) – TAT", linewidth=2)
     plt.axvline(alpha_L0_deg, color='r', linestyle='--', label=f"α_L0 = {alpha_L0_deg:.2f}°")
 
     plt.xlabel("Ángulo de ataque α (°)")
@@ -102,3 +111,16 @@ if __name__ == "__main__":
     plt.grid()
     plt.legend()
     plt.show()
+
+    plt.figure(figsize=(7,5))
+    plt.plot(alpha, CD_cfd, 'r-o', label="C_D CFD", markersize=8)
+    plt.plot(alpha_deg, CD_exp ,'b-o',label="C_D  exp", linewidth=2)
+    plt.axvline(alpha_L0_deg, color='r', linestyle='--', label=f"α_L0 = {alpha_L0_deg:.2f}°")
+
+    plt.xlabel("Ángulo de ataque α (°)")
+    plt.ylabel("Coeficiente de arrastre C_D")
+    plt.title("Curva C_D(α) ")
+    plt.grid()
+    plt.legend()
+    plt.show()
+    print(f"RMAE de arrastre entre TAT y CFD: {RMAE_drag:.4f}")
